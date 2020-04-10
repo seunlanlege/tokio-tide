@@ -49,7 +49,7 @@ and **not ready for production yet**.
 **Hello World**
 
 ```rust
-#[async_std::main]
+#[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let mut app = tide::new();
     app.at("/").get(|_| async move { "Hello, world!" });
