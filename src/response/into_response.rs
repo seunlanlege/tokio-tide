@@ -1,5 +1,5 @@
 use crate::{Request, Response};
-use async_std::io::BufReader;
+use hyper::StatusCode;
 
 /// Conversion into a `Response`.
 pub trait IntoResponse: Send + Sized {
@@ -10,10 +10,10 @@ pub trait IntoResponse: Send + Sized {
     ///
     /// ```
     /// # use tide::IntoResponse;
-    /// let resp = "Hello, 404!".with_status(http::status::StatusCode::NOT_FOUND).into_response();
-    /// assert_eq!(resp.status(), http::status::StatusCode::NOT_FOUND);
+    /// let resp = "Hello, 404!".with_status(hyper::status::StatusCode::NOT_FOUND).into_response();
+    /// assert_eq!(resp.status(), hyper::status::StatusCode::NOT_FOUND);
     /// ```
-    fn with_status(self, status: http::status::StatusCode) -> WithStatus<Self> {
+    fn with_status(self, status: StatusCode) -> WithStatus<Self> {
         WithStatus {
             inner: self,
             status,
@@ -23,8 +23,8 @@ pub trait IntoResponse: Send + Sized {
 
 // impl IntoResponse for () {
 //     fn into_response(self) -> Response {
-//         http::Response::builder()
-//             .status(http::status::StatusCode::NO_CONTENT)
+//         hyper::Response::builder()
+//             .status(hyper::status::StatusCode::NO_CONTENT)
 //             .body(Body::empty())
 //             .unwrap()
 //     }
@@ -32,8 +32,8 @@ pub trait IntoResponse: Send + Sized {
 
 // impl IntoResponse for Vec<u8> {
 //     fn into_response(self) -> Response {
-//         http::Response::builder()
-//             .status(http::status::StatusCode::OK)
+//         hyper::Response::builder()
+//             .status(hyper::status::StatusCode::OK)
 //             .header("Content-Type", "application/octet-stream")
 //             .body(Body::from(self))
 //             .unwrap()
@@ -49,8 +49,9 @@ impl IntoResponse for String {
 }
 
 impl<State: Send + Sync + 'static> IntoResponse for Request<State> {
-    fn into_response(self) -> Response {
-        Response::new(200).body(BufReader::new(self))
+    fn into_response(mut self) -> Response {
+        Response::new(200)
+            .body(self.body_raw())
     }
 }
 
@@ -60,9 +61,9 @@ impl IntoResponse for &'_ str {
     }
 }
 
-// impl IntoResponse for http::status::StatusCode {
+// impl IntoResponse for hyper::status::StatusCode {
 //     fn into_response(self) -> Response {
-//         http::Response::builder()
+//         hyper::Response::builder()
 //             .status(self)
 //             .body(Body::empty())
 //             .unwrap()
@@ -97,7 +98,7 @@ impl IntoResponse for Response {
 #[derive(Debug)]
 pub struct WithStatus<R> {
     inner: R,
-    status: http::status::StatusCode,
+    status: hyper::StatusCode,
 }
 
 impl<R: IntoResponse> IntoResponse for WithStatus<R> {

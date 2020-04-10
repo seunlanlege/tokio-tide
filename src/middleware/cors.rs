@@ -1,9 +1,9 @@
 //! Cors middleware
 
 use futures::future::BoxFuture;
-use http::header::HeaderValue;
-use http::{header, Method, StatusCode};
-use http_service::Body;
+use hyper::header::HeaderValue;
+use hyper::{header, Method, StatusCode};
+use hyper::Body;
 
 use crate::middleware::{Middleware, Next};
 use crate::{Request, Response};
@@ -13,7 +13,7 @@ use crate::{Request, Response};
 /// # Example
 ///
 /// ```no_run
-/// use http::header::HeaderValue;
+/// use hyper::header::HeaderValue;
 /// use tide::middleware::{Cors, Origin};
 ///
 /// Cors::new()
@@ -87,8 +87,8 @@ impl Cors {
         self
     }
 
-    fn build_preflight_response(&self, origin: &HeaderValue) -> http::response::Response<Body> {
-        let mut response = http::Response::builder()
+    fn build_preflight_response(&self, origin: &HeaderValue) -> hyper::Response<Body> {
+        let mut response = hyper::Response::builder()
             .status(StatusCode::OK)
             .header::<_, HeaderValue>(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone())
             .header(
@@ -156,7 +156,7 @@ impl<State: Send + Sync + 'static> Middleware<State> for Cors {
                 .unwrap_or_else(|| HeaderValue::from_static(""));
 
             if !self.is_valid_origin(&origin) {
-                return http::Response::builder()
+                return hyper::Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
                     .body(Body::empty())
                     .unwrap()
@@ -168,20 +168,26 @@ impl<State: Send + Sync + 'static> Middleware<State> for Cors {
                 return self.build_preflight_response(&origin).into();
             }
 
-            let mut response: http_service::Response = next.run(req).await.into();
-            let headers = response.headers_mut();
+            let mut response = next.run(req).await;
 
-            headers.append(
-                header::ACCESS_CONTROL_ALLOW_ORIGIN,
-                self.response_origin(origin).unwrap(),
-            );
+            response.response_mut()
+                .headers_mut()
+                .append(
+                    header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                    self.response_origin(origin).unwrap()
+                );
 
             if let Some(allow_credentials) = self.allow_credentials.clone() {
-                headers.append(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, allow_credentials);
+                response.response_mut()
+                    .headers_mut()
+                    .append(header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+                                                            allow_credentials);
             }
 
             if let Some(expose_headers) = self.expose_headers.clone() {
-                headers.append(header::ACCESS_CONTROL_EXPOSE_HEADERS, expose_headers);
+                response.response_mut()
+                    .headers_mut()
+                    .append(header::ACCESS_CONTROL_EXPOSE_HEADERS, expose_headers);
             }
             response.into()
         })
@@ -239,8 +245,8 @@ impl From<Vec<&str>> for Origin {
 #[cfg(test)]
 mod test {
     use super::*;
-    use http::header::HeaderValue;
-    use http_service::Body;
+    use hyper::header::HeaderValue;
+    use hyper::Body;
     use http_service_mock::make_server;
 
     const ALLOW_ORIGIN: &str = "example.com";
@@ -256,10 +262,10 @@ mod test {
         app
     }
 
-    fn request() -> http::Request<http_service::Body> {
-        http::Request::get(ENDPOINT)
-            .header(http::header::ORIGIN, ALLOW_ORIGIN)
-            .method(http::method::Method::GET)
+    fn request() -> hyper::Request<http_service::Body> {
+        hyper::Request::get(ENDPOINT)
+            .header(hyper::header::ORIGIN, ALLOW_ORIGIN)
+            .method(hyper::method::Method::GET)
             .body(Body::empty())
             .unwrap()
     }
@@ -277,9 +283,9 @@ mod test {
 
         let mut server = make_server(app.into_http_service()).unwrap();
 
-        let req = http::Request::get(ENDPOINT)
-            .header(http::header::ORIGIN, ALLOW_ORIGIN)
-            .method(http::method::Method::OPTIONS)
+        let req = hyper::Request::get(ENDPOINT)
+            .header(hyper::header::ORIGIN, ALLOW_ORIGIN)
+            .method(hyper::method::Method::OPTIONS)
             .body(Body::empty())
             .unwrap();
 
@@ -373,9 +379,9 @@ mod test {
         let mut server = make_server(app.into_http_service()).unwrap();
 
         for origin in origins {
-            let request = http::Request::get(ENDPOINT)
-                .header(http::header::ORIGIN, origin)
-                .method(http::method::Method::GET)
+            let request = hyper::Request::get(ENDPOINT)
+                .header(hyper::header::ORIGIN, origin)
+                .method(hyper::method::Method::GET)
                 .body(Body::empty())
                 .unwrap();
 
@@ -394,8 +400,8 @@ mod test {
         let mut app = app();
         app.middleware(Cors::new());
 
-        let request = http::Request::get(ENDPOINT)
-            .method(http::method::Method::GET)
+        let request = hyper::Request::get(ENDPOINT)
+            .method(hyper::method::Method::GET)
             .body(Body::empty())
             .unwrap();
 
@@ -410,9 +416,9 @@ mod test {
         let mut app = app();
         app.middleware(Cors::new().allow_origin(ALLOW_ORIGIN));
 
-        let request = http::Request::get(ENDPOINT)
-            .header(http::header::ORIGIN, "unauthorize-origin.net")
-            .method(http::method::Method::GET)
+        let request = hyper::Request::get(ENDPOINT)
+            .header(hyper::header::ORIGIN, "unauthorize-origin.net")
+            .method(hyper::method::Method::GET)
             .body(Body::empty())
             .unwrap();
 

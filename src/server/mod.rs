@@ -1,15 +1,6 @@
 //! An HTTP server
 
-use async_std::future::Future;
-use async_std::io;
-use async_std::net::{TcpListener, ToSocketAddrs};
-use async_std::sync::Arc;
-use async_std::task;
-use async_std::task::{Context, Poll};
-
-use http_service::HttpService;
-
-use std::pin::Pin;
+use std::sync::Arc;
 
 use crate::utils::BoxFuture;
 use crate::{
@@ -21,6 +12,10 @@ use crate::{
 mod route;
 
 pub use route::Route;
+use hyper::Body;
+use std::convert::Infallible;
+use hyper::service::{make_service_fn, service_fn};
+use std::net::ToSocketAddrs;
 
 /// An HTTP server.
 ///
@@ -86,7 +81,7 @@ pub use route::Route;
 ///// # Serverlication state
 /////
 ///// ```rust,no_run
-///// use http::status::StatusCode;
+///// use hyper::status::StatusCode;
 ///// use serde::{Deserialize, Serialize};
 ///// use std::sync::Mutex;
 ///// use tide::{error::ResultExt, Server, Request, Result};
@@ -288,28 +283,23 @@ impl<State: Send + Sync + 'static> Server<State> {
     }
 
     /// Asynchronously serve the app at the given address.
-    #[cfg(feature = "hyper-server")]
     pub async fn listen(self, addr: impl ToSocketAddrs) -> std::io::Result<()> {
-        #[derive(Copy, Clone)]
-        struct Spawner;
+        let addr = addr.to_socket_addrs()?.next().unwrap();
+        log::info!("Server is listening on: http://{}", addr);
+        let service = self.into_http_service();
 
-        impl futures::task::Spawn for &Spawner {
-            fn spawn_obj(
-                &self,
-                future: futures::future::FutureObj<'static, ()>,
-            ) -> Result<(), futures::task::SpawnError> {
-                task::spawn(Box::pin(future));
-                Ok(())
+        let make_service = make_service_fn(move |_conn| {
+            let service = service.clone();
+            async {
+                Ok::<_, Infallible>(service_fn(move |req| {
+                    let service = service.clone();
+                    service.respond(req)
+                }))
             }
-        }
+        });
 
-        let listener = TcpListener::bind(addr).await?;
-        log::info!("Server is listening on: http://{}", listener.local_addr()?);
-        let http_service = self.into_http_service();
-
-        let res = http_service_hyper::Server::builder(listener.incoming())
-            .with_spawner(Spawner {})
-            .serve(http_service)
+        let res = hyper::Server::bind(&addr)
+            .serve(make_service)
             .await;
 
         res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -338,37 +328,18 @@ impl<State> Clone for Service<State> {
     }
 }
 
-#[derive(Debug)]
-pub struct ReadyFuture;
-
-impl Future for ReadyFuture {
-    type Output = io::Result<()>;
-
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Poll::Ready(Ok(()))
-    }
-}
-
-impl<State: Sync + Send + 'static> HttpService for Service<State> {
-    type Connection = ();
-    type ConnectionFuture = ReadyFuture;
-    type ResponseFuture = BoxFuture<'static, Result<http_service::Response, std::io::Error>>;
-
-    fn connect(&self) -> Self::ConnectionFuture {
-        ReadyFuture {}
-    }
-
-    fn respond(&self, _conn: &mut (), req: http_service::Request) -> Self::ResponseFuture {
+impl<State: Sync + Send + 'static> Service<State> {
+    async fn respond(self, req: hyper::Request<Body>) -> Result<hyper::Response<Body>, Infallible> {
         let req = Request::new(self.state.clone(), req, Vec::new());
-        let service = self.clone();
-        Box::pin(async move { Ok(service.call(req).await.into()) })
+        let response = self.call(req).await.into();
+        Ok(response)
     }
 }
 
 impl<State: Sync + Send + 'static, InnerState: Sync + Send + 'static> Endpoint<State>
     for Service<InnerState>
 {
-    fn call<'a>(&'a self, req: Request<State>) -> BoxFuture<'a, Response> {
+    fn call(&self, req: Request<State>) -> BoxFuture<'_, Response> {
         let Request {
             request: req,
             mut route_params,

@@ -1,16 +1,13 @@
 use cookie::Cookie;
-use http::{HeaderMap, Method, Uri, Version};
-use http_service::Body;
+use hyper::{HeaderMap, Method, Uri, Version, Body};
 use route_recognizer::Params;
 use serde::Deserialize;
 
-use async_std::io::{self, prelude::*};
-use async_std::task::{Context, Poll};
-
-use std::pin::Pin;
 use std::{str::FromStr, sync::Arc};
 
 use crate::middleware::cookies::CookieData;
+use crate::error::Error;
+use bytes::Buf;
 
 /// An HTTP request.
 ///
@@ -22,14 +19,14 @@ use crate::middleware::cookies::CookieData;
 #[derive(Debug)]
 pub struct Request<State> {
     pub(crate) state: Arc<State>,
-    pub(crate) request: http_service::Request,
+    pub(crate) request: hyper::Request<Body>,
     pub(crate) route_params: Vec<Params>,
 }
 
 impl<State> Request<State> {
     pub(crate) fn new(
         state: Arc<State>,
-        request: http::Request<Body>,
+        request: hyper::Request<Body>,
         route_params: Vec<Params>,
     ) -> Request<State> {
         Request {
@@ -51,7 +48,7 @@ impl<State> Request<State> {
     ///
     /// let mut app = tide::new();
     /// app.at("/").get(|req: Request<()>| async move {
-    ///     assert_eq!(req.method(), http::Method::GET);
+    ///     assert_eq!(req.method(), hyper::Method::GET);
     ///     ""
     /// });
     /// app.listen("127.0.0.1:8080").await?;
@@ -74,7 +71,7 @@ impl<State> Request<State> {
     ///
     /// let mut app = tide::new();
     /// app.at("/").get(|req: Request<()>| async move {
-    ///     assert_eq!(req.uri(), &"/".parse::<tide::http::Uri>().unwrap());
+    ///     assert_eq!(req.uri(), &"/".parse::<tide::Uri>().unwrap());
     ///     ""
     /// });
     /// app.listen("127.0.0.1:8080").await?;
@@ -97,7 +94,7 @@ impl<State> Request<State> {
     ///
     /// let mut app = tide::new();
     /// app.at("/").get(|req: Request<()>| async move {
-    ///     assert_eq!(req.version(), tide::http::Version::HTTP_11);
+    ///     assert_eq!(req.version(), tide::Version::HTTP_11);
     ///     ""
     /// });
     /// app.listen("127.0.0.1:8080").await?;
@@ -211,10 +208,11 @@ impl<State> Request<State> {
     /// #
     /// # Ok(()) })}
     /// ```
-    pub async fn body_bytes(&mut self) -> std::io::Result<Vec<u8>> {
-        let mut buf = Vec::with_capacity(1024);
-        self.request.body_mut().read_to_end(&mut buf).await?;
-        Ok(buf)
+    pub async fn body_bytes(&mut self) -> Result<Vec<u8>, Error> {
+        let body = std::mem::replace(self.request.body_mut(), Body::empty());
+        // todo: not a fan of these extra allocations, getting a Vec<u8> out of the body shouldn't be this hard.
+        let bytes = hyper::body::aggregate(body).await?.to_bytes();
+        Ok(bytes.to_vec())
     }
 
     /// Reads the entire request body into a string.
@@ -246,9 +244,15 @@ impl<State> Request<State> {
     /// #
     /// # Ok(()) })}
     /// ```
-    pub async fn body_string(&mut self) -> std::io::Result<String> {
+    pub async fn body_string(&mut self) -> Result<String, Error> {
         let body_bytes = self.body_bytes().await?;
-        Ok(String::from_utf8(body_bytes).map_err(|_| std::io::ErrorKind::InvalidData)?)
+        Ok(String::from_utf8(body_bytes).map_err(|_| {
+            Error::IO(std::io::ErrorKind::InvalidData.into())
+        })?)
+    }
+
+    pub fn body_raw(&mut self) -> Body {
+        std::mem::replace(self.request.body_mut(), Body::empty())
     }
 
     /// Reads and deserialized the entire request body via json.
@@ -260,9 +264,11 @@ impl<State> Request<State> {
     ///
     /// If the body cannot be interpreted as valid json for the target type `T`,
     /// an `Err` is returned.
-    pub async fn body_json<T: serde::de::DeserializeOwned>(&mut self) -> std::io::Result<T> {
+    pub async fn body_json<T: serde::de::DeserializeOwned>(&mut self) -> Result<T, Error> {
         let body_bytes = self.body_bytes().await?;
-        Ok(serde_json::from_slice(&body_bytes).map_err(|_| std::io::ErrorKind::InvalidData)?)
+        Ok(serde_json::from_slice(&body_bytes).map_err(|_| {
+            Error::IO(std::io::ErrorKind::InvalidData.into())
+        })?)
     }
 
     /// Get the URL querystring.
@@ -275,16 +281,13 @@ impl<State> Request<State> {
             // Return the displayable version of the deserialisation error to the caller
             // for easier debugging.
             let response = crate::Response::new(400).body_string(format!("{}", e));
-            crate::Error::from(response)
+            crate::Error::Response(response)
         })
     }
 
     /// Parse the request body as a form.
-    pub async fn body_form<T: serde::de::DeserializeOwned>(&mut self) -> io::Result<T> {
-        let body = self
-            .body_bytes()
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    pub async fn body_form<T: serde::de::DeserializeOwned>(&mut self) -> Result<T, Error> {
+        let body = self.body_bytes().await?;
         let res = serde_qs::from_bytes(&body).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -302,16 +305,5 @@ impl<State> Request<State> {
 
         let locked_jar = cookie_data.content.read().unwrap();
         locked_jar.get(name).cloned()
-    }
-}
-
-impl<State> Read for Request<State> {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        let this = &mut *self;
-        Pin::new(this.request.body_mut()).poll_read(cx, buf)
     }
 }

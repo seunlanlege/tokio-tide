@@ -2,8 +2,8 @@ pub use accept_encoding::Encoding;
 
 use async_compression::stream;
 use futures::future::BoxFuture;
-use http::{header::CONTENT_ENCODING, status::StatusCode, HeaderMap};
-use http_service::Body;
+use hyper::{header::CONTENT_ENCODING, status::StatusCode, HeaderMap};
+use hyper::Body;
 
 use crate::{
     middleware::{Middleware, Next},
@@ -155,7 +155,7 @@ impl Decompression {
         }
     }
 
-    fn decode(&self, req: &mut http_service::Request) -> Result<(), Error> {
+    fn decode(&self, req: &muthyper::Request) -> Result<(), Error> {
         let encodings = if let Some(hval) = req.headers().get(CONTENT_ENCODING) {
             let hval = match hval.to_str() {
                 Ok(hval) => hval,
@@ -228,8 +228,8 @@ mod tests {
         executor::{block_on, block_on_stream},
         stream::StreamExt,
     };
-    use http::header::ACCEPT_ENCODING;
-    use http_service::Body;
+    use hyper::header::ACCEPT_ENCODING;
+    use hyper::Body;
     use http_service_mock::make_server;
 
     async fn lorem_ipsum(_cx: Request<()>) -> String {
@@ -271,7 +271,7 @@ mod tests {
     fn get_encoded_response(hval: &str) -> Response {
         let app = app();
         let mut server = make_server(app.into_http_service()).unwrap();
-        let req = http::Request::get("/")
+        let req = hyper::Request::get("/")
             .header(ACCEPT_ENCODING, hval)
             .body(Body::empty())
             .unwrap();
@@ -283,7 +283,7 @@ mod tests {
     fn get_decoded_response(body: Body, hval: &str) -> Response {
         let app = app();
         let mut server = make_server(app.into_http_service()).unwrap();
-        let req = http::Request::post("/echo")
+        let req = hyper::Request::post("/echo")
             .header(CONTENT_ENCODING, hval)
             .body(body)
             .unwrap();

@@ -1,8 +1,6 @@
-use async_std::io::prelude::*;
-
 use cookie::Cookie;
-use http::StatusCode;
-use http_service::Body;
+use hyper::StatusCode;
+use hyper::Body;
 use mime::Mime;
 use serde::Serialize;
 
@@ -19,7 +17,7 @@ pub(crate) enum CookieEvent {
 /// An HTTP response
 #[derive(Debug)]
 pub struct Response {
-    res: http_service::Response,
+    res: hyper::Response<Body>,
     // tracking here
     pub(crate) cookie_events: Vec<CookieEvent>,
 }
@@ -27,8 +25,8 @@ pub struct Response {
 impl Response {
     /// Create a new instance.
     pub fn new(status: u16) -> Self {
-        let status = http::StatusCode::from_u16(status).expect("invalid status code");
-        let res = http::Response::builder()
+        let status = hyper::StatusCode::from_u16(status).expect("invalid status code");
+        let res = hyper::Response::builder()
             .status(status)
             .body(Body::empty())
             .unwrap();
@@ -39,14 +37,14 @@ impl Response {
     }
 
     /// Create a new instance from a reader.
-    pub fn with_reader<R>(status: u16, reader: R) -> Self
+    pub fn with_reader<R>(status: u16, body: R) -> Self
     where
-        R: BufRead + Unpin + Send + 'static,
+        R: Into<Body>,
     {
-        let status = http::StatusCode::from_u16(status).expect("invalid status code");
-        let res = http::Response::builder()
+        let status = hyper::StatusCode::from_u16(status).expect("invalid status code");
+        let res = hyper::Response::builder()
             .status(status)
-            .body(Box::pin(reader).into())
+            .body(body.into())
             .unwrap();
         Self {
             res,
@@ -55,14 +53,18 @@ impl Response {
     }
 
     /// Returns the statuscode.
-    pub fn status(&self) -> http::StatusCode {
+    pub fn status(&self) -> hyper::StatusCode {
         self.res.status()
     }
 
     /// Set the statuscode.
-    pub fn set_status(mut self, status: http::StatusCode) -> Self {
+    pub fn set_status(mut self, status: hyper::StatusCode) -> Self {
         *self.res.status_mut() = status;
         self
+    }
+
+    pub(crate) fn response_mut(&mut self) -> &mut hyper::Response<Body> {
+        &mut self.res
     }
 
     /// Insert an HTTP header.
@@ -101,11 +103,11 @@ impl Response {
     /// # Mime
     ///
     /// The encoding is set to `application/octet-stream`.
-    pub fn body<R>(mut self, reader: R) -> Self
+    pub fn body<R>(mut self, body: R) -> Self
     where
-        R: BufRead + Unpin + Send + 'static,
+        R: Into<Body>,
     {
-        *self.res.body_mut() = Box::pin(reader).into();
+        *self.res.body_mut() = body.into();
         self.set_mime(mime::APPLICATION_OCTET_STREAM)
     }
 
@@ -167,15 +169,15 @@ impl Response {
 }
 
 #[doc(hidden)]
-impl Into<http_service::Response> for Response {
-    fn into(self) -> http_service::Response {
+impl Into<hyper::Response<Body>> for Response {
+    fn into(self) -> hyper::Response<Body> {
         self.res
     }
 }
 
 #[doc(hidden)]
-impl From<http_service::Response> for Response {
-    fn from(res: http_service::Response) -> Self {
+impl From<hyper::Response<Body>> for Response {
+    fn from(res: hyper::Response<Body>) -> Self {
         Self {
             res,
             cookie_events: vec![],

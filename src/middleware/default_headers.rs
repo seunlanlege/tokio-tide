@@ -1,6 +1,6 @@
 use futures::future::BoxFuture;
 
-use http::{
+use hyper::{
     header::{HeaderValue, IntoHeaderName},
     HeaderMap, HttpTryFrom,
 };

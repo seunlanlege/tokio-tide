@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::endpoint::MiddlewareEndpoint;
 use crate::utils::BoxFuture;
 use crate::{router::Router, Endpoint, Middleware, Response};
+use hyper::{Method, Uri};
 
 /// A handle to a route.
 ///
@@ -93,7 +94,7 @@ impl<'a, State: 'static> Route<'a, State> {
     }
 
     /// Add an endpoint for the given HTTP method
-    pub fn method(&mut self, method: http::Method, ep: impl Endpoint<State>) -> &mut Self {
+    pub fn method(&mut self, method: Method, ep: impl Endpoint<State>) -> &mut Self {
         if self.prefix {
             let ep = StripPrefixEndpoint::new(ep);
             let (ep1, ep2): (Box<dyn Endpoint<_>>, Box<dyn Endpoint<_>>) =
@@ -160,55 +161,55 @@ impl<'a, State: 'static> Route<'a, State> {
 
     /// Add an endpoint for `GET` requests
     pub fn get(&mut self, ep: impl Endpoint<State>) -> &mut Self {
-        self.method(http::Method::GET, ep);
+        self.method(Method::GET, ep);
         self
     }
 
     /// Add an endpoint for `HEAD` requests
     pub fn head(&mut self, ep: impl Endpoint<State>) -> &mut Self {
-        self.method(http::Method::HEAD, ep);
+        self.method(Method::HEAD, ep);
         self
     }
 
     /// Add an endpoint for `PUT` requests
     pub fn put(&mut self, ep: impl Endpoint<State>) -> &mut Self {
-        self.method(http::Method::PUT, ep);
+        self.method(Method::PUT, ep);
         self
     }
 
     /// Add an endpoint for `POST` requests
     pub fn post(&mut self, ep: impl Endpoint<State>) -> &mut Self {
-        self.method(http::Method::POST, ep);
+        self.method(Method::POST, ep);
         self
     }
 
     /// Add an endpoint for `DELETE` requests
     pub fn delete(&mut self, ep: impl Endpoint<State>) -> &mut Self {
-        self.method(http::Method::DELETE, ep);
+        self.method(Method::DELETE, ep);
         self
     }
 
     /// Add an endpoint for `OPTIONS` requests
     pub fn options(&mut self, ep: impl Endpoint<State>) -> &mut Self {
-        self.method(http::Method::OPTIONS, ep);
+        self.method(Method::OPTIONS, ep);
         self
     }
 
     /// Add an endpoint for `CONNECT` requests
     pub fn connect(&mut self, ep: impl Endpoint<State>) -> &mut Self {
-        self.method(http::Method::CONNECT, ep);
+        self.method(Method::CONNECT, ep);
         self
     }
 
     /// Add an endpoint for `PATCH` requests
     pub fn patch(&mut self, ep: impl Endpoint<State>) -> &mut Self {
-        self.method(http::Method::PATCH, ep);
+        self.method(Method::PATCH, ep);
         self
     }
 
     /// Add an endpoint for `TRACE` requests
     pub fn trace(&mut self, ep: impl Endpoint<State>) -> &mut Self {
-        self.method(http::Method::TRACE, ep);
+        self.method(Method::TRACE, ep);
         self
     }
 }
@@ -237,15 +238,14 @@ impl<State, E: Endpoint<State>> Endpoint<State> for StripPrefixEndpoint<E> {
             path_and_query.push('?');
             path_and_query.push_str(query);
         }
-        let mut new_uri = http::Uri::builder();
-        if let Some(scheme) = uri.scheme_part() {
-            new_uri.scheme(scheme.clone());
+        let mut new_uri = Uri::builder();
+        if let Some(scheme) = uri.scheme() {
+            new_uri = new_uri.scheme(scheme.clone());
         }
-        if let Some(authority) = uri.authority_part() {
-            new_uri.authority(authority.clone());
+        if let Some(authority) = uri.authority() {
+            new_uri = new_uri.authority(authority.clone());
         }
-        new_uri.path_and_query(path_and_query.as_str());
-        let new_uri = new_uri.build().unwrap();
+        let new_uri = new_uri.path_and_query(path_and_query.as_str()).build().unwrap();
         *req.request.uri_mut() = new_uri;
 
         self.0.call(req)

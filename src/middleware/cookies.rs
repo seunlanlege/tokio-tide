@@ -6,7 +6,7 @@ use crate::{
 use cookie::{Cookie, CookieJar, ParseError};
 use futures::future::BoxFuture;
 
-use http::HeaderMap;
+use hyper::HeaderMap;
 use std::sync::{Arc, RwLock};
 
 /// A middleware for making cookie data available in requests.
@@ -63,7 +63,7 @@ impl<State: Send + Sync + 'static> Middleware<State> for CookiesMiddleware {
 
             // iterate over added and removed cookies
             for cookie in cookie_jar.read().unwrap().delta() {
-                let set_cookie_header = http::header::SET_COOKIE.as_ref();
+                let set_cookie_header = hyper::header::SET_COOKIE.as_ref();
                 let encoded_cookie = cookie.encoded().to_string();
                 res = res.append_header(set_cookie_header, encoded_cookie);
             }
@@ -79,7 +79,7 @@ pub(crate) struct CookieData {
 
 impl CookieData {
     pub(crate) fn from_headers(headers: &HeaderMap) -> Self {
-        let cookie_header = headers.get(http::header::COOKIE);
+        let cookie_header = headers.get(hyper::header::COOKIE);
         let cookie_jar = cookie_header.and_then(|raw| {
             let mut jar = CookieJar::new();
 

@@ -147,7 +147,7 @@
 //! #     }
 //! # }
 //!
-//! #[async_std::main]
+//! #[tokio::main]
 //! async fn main() -> Result<(), std::io::Error> {
 //!     let mut app = tide::new();
 //!     app.at("/").get(|req: Request<()>| async move { req.bark() });
@@ -196,8 +196,6 @@ pub use middleware::{Middleware, Next};
 pub use response::{IntoResponse, Response};
 #[doc(inline)]
 pub use server::{Route, Server};
-
-pub use http;
 
 /// Create a new Tide server.
 ///

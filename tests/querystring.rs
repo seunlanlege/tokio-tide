@@ -3,6 +3,7 @@ use futures::executor::block_on;
 use http_service::Body;
 use http_service_mock::{make_server, TestBackend};
 use serde::Deserialize;
+use tokio::io::AsyncRead;
 use tide::{server::Service, IntoResponse, Request, Response, Server};
 
 #[derive(Deserialize)]
