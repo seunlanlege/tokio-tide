@@ -1,10 +1,8 @@
-use async_std::io::prelude::ReadExt;
-use futures::executor::block_on;
-use http_service::Body;
-use http_service_mock::{make_server, TestBackend};
 use serde::Deserialize;
-use tokio::io::AsyncRead;
-use tide::{server::Service, IntoResponse, Request, Response, Server};
+use tide::{server::Service, IntoResponse, Request, Response, Server, Endpoint};
+use hyper::{Body, body};
+use std::sync::Arc;
+use bytes::Buf;
 
 #[derive(Deserialize)]
 struct Params {
@@ -33,56 +31,57 @@ async fn optional_handler(cx: Request<()>) -> Response {
     }
 }
 
-fn get_server() -> TestBackend<Service<()>> {
+fn get_server() -> Service<()> {
     let mut app = Server::new();
     app.at("/").get(handler);
     app.at("/optional").get(optional_handler);
-    make_server(app.into_http_service()).unwrap()
+    app.into_http_service()
 }
 
-#[test]
-fn successfully_deserialize_query() {
-    let mut server = get_server();
-    let req = http::Request::get("/?msg=Hello")
+#[tokio::test]
+async fn successfully_deserialize_query() {
+    let server = get_server();
+    let req = hyper::Request::get("/?msg=Hello")
         .body(Body::empty())
         .unwrap();
-    let res = server.simulate(req).unwrap();
+    let req = Request::new(Arc::new(()), req, vec![]);
+    let mut res = server.call(req).await;
     assert_eq!(res.status(), 200);
-    let mut body = String::new();
-    block_on(res.into_body().read_to_string(&mut body)).unwrap();
-    assert_eq!(body, "Hello");
+    let body = body::aggregate(res.take_body()).await.unwrap().to_bytes().to_vec();
+    assert_eq!(&body[..], "Hello".as_bytes());
 }
 
-#[test]
-fn unsuccessfully_deserialize_query() {
-    let mut server = get_server();
-    let req = http::Request::get("/").body(Body::empty()).unwrap();
-    let res = server.simulate(req).unwrap();
+#[tokio::test]
+async fn unsuccessfully_deserialize_query() {
+    let server = get_server();
+    let req = hyper::Request::get("/").body(Body::empty()).unwrap();
+    let req = Request::new(Arc::new(()), req, vec![]);
+    let mut res = server.call(req).await;
     assert_eq!(res.status(), 400);
 
-    let mut body = String::new();
-    block_on(res.into_body().read_to_string(&mut body)).unwrap();
-    assert_eq!(body, "failed with reason: missing field `msg`");
+    let body = body::aggregate(res.take_body()).await.unwrap().to_bytes().to_vec();
+    assert_eq!(&body[..], "failed with reason: missing field `msg`".as_bytes());
 }
 
-#[test]
-fn malformatted_query() {
-    let mut server = get_server();
-    let req = http::Request::get("/?error=should_fail")
+#[tokio::test]
+async fn malformatted_query() {
+    let server = get_server();
+    let req = hyper::Request::get("/?error=should_fail")
         .body(Body::empty())
         .unwrap();
-    let res = server.simulate(req).unwrap();
+    let req = Request::new(Arc::new(()), req, vec![]);
+    let mut res = server.call(req).await;
     assert_eq!(res.status(), 400);
 
-    let mut body = String::new();
-    block_on(res.into_body().read_to_string(&mut body)).unwrap();
-    assert_eq!(body, "failed with reason: missing field `msg`");
+    let body = body::aggregate(res.take_body()).await.unwrap().to_bytes().to_vec();
+    assert_eq!(&body[..], "failed with reason: missing field `msg`".as_bytes());
 }
 
-#[test]
-fn empty_query_string_for_struct_with_no_required_fields() {
-    let mut server = get_server();
-    let req = http::Request::get("/optional").body(Body::empty()).unwrap();
-    let res = server.simulate(req).unwrap();
+#[tokio::test]
+async fn empty_query_string_for_struct_with_no_required_fields() {
+    let server = get_server();
+    let req = hyper::Request::get("/optional").body(Body::empty()).unwrap();
+    let req = Request::new(Arc::new(()), req, vec![]);
+    let res = server.call(req).await;
     assert_eq!(res.status(), 200);
 }

@@ -10,8 +10,8 @@ pub trait IntoResponse: Send + Sized {
     ///
     /// ```
     /// # use tide::IntoResponse;
-    /// let resp = "Hello, 404!".with_status(hyper::status::StatusCode::NOT_FOUND).into_response();
-    /// assert_eq!(resp.status(), hyper::status::StatusCode::NOT_FOUND);
+    /// let resp = "Hello, 404!".with_status(hyper::StatusCode::NOT_FOUND).into_response();
+    /// assert_eq!(resp.status(), hyper::StatusCode::NOT_FOUND);
     /// ```
     fn with_status(self, status: StatusCode) -> WithStatus<Self> {
         WithStatus {
@@ -24,7 +24,7 @@ pub trait IntoResponse: Send + Sized {
 // impl IntoResponse for () {
 //     fn into_response(self) -> Response {
 //         hyper::Response::builder()
-//             .status(hyper::status::StatusCode::NO_CONTENT)
+//             .status(hyper::StatusCode::NO_CONTENT)
 //             .body(Body::empty())
 //             .unwrap()
 //     }
@@ -33,7 +33,7 @@ pub trait IntoResponse: Send + Sized {
 // impl IntoResponse for Vec<u8> {
 //     fn into_response(self) -> Response {
 //         hyper::Response::builder()
-//             .status(hyper::status::StatusCode::OK)
+//             .status(hyper::StatusCode::OK)
 //             .header("Content-Type", "application/octet-stream")
 //             .body(Body::from(self))
 //             .unwrap()
@@ -61,7 +61,7 @@ impl IntoResponse for &'_ str {
     }
 }
 
-// impl IntoResponse for hyper::status::StatusCode {
+// impl IntoResponse for hyper::StatusCode {
 //     fn into_response(self) -> Response {
 //         hyper::Response::builder()
 //             .status(self)

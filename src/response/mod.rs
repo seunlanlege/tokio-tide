@@ -88,6 +88,14 @@ impl Response {
         self.set_header("Content-Type", format!("{}", mime))
     }
 
+    pub fn take_body(&mut self) -> Body {
+        std::mem::replace(self.res.body_mut(), Body::empty())
+    }
+
+    pub fn headers(&self) -> &hyper::HeaderMap {
+        self.res.headers()
+    }
+
     /// Pass a string as the request body.
     ///
     /// # Mime

@@ -247,7 +247,8 @@ mod test {
     use super::*;
     use hyper::header::HeaderValue;
     use hyper::Body;
-    use http_service_mock::make_server;
+    use std::sync::Arc;
+    use crate::Endpoint;
 
     const ALLOW_ORIGIN: &str = "example.com";
     const ALLOW_METHODS: &str = "GET, POST, OPTIONS, DELETE";
@@ -262,16 +263,17 @@ mod test {
         app
     }
 
-    fn request() -> hyper::Request<http_service::Body> {
-        hyper::Request::get(ENDPOINT)
+    fn request() -> Request<()> {
+        let req = hyper::Request::get(ENDPOINT)
             .header(hyper::header::ORIGIN, ALLOW_ORIGIN)
-            .method(hyper::method::Method::GET)
+            .method(hyper::Method::GET)
             .body(Body::empty())
-            .unwrap()
+            .unwrap();
+        Request::new(Arc::new(()), req, vec![])
     }
 
-    #[test]
-    fn preflight_request() {
+    #[tokio::test]
+    async fn preflight_request() {
         let mut app = app();
         app.middleware(
             Cors::new()
@@ -281,15 +283,16 @@ mod test {
                 .allow_credentials(true),
         );
 
-        let mut server = make_server(app.into_http_service()).unwrap();
+        let app = app.into_http_service();
 
         let req = hyper::Request::get(ENDPOINT)
             .header(hyper::header::ORIGIN, ALLOW_ORIGIN)
-            .method(hyper::method::Method::OPTIONS)
+            .method(hyper::Method::OPTIONS)
             .body(Body::empty())
             .unwrap();
+        let req = Request::new(Arc::new(()), req, vec![]);
 
-        let res = server.simulate(req).unwrap();
+        let res = app.call(req).await;
 
         assert_eq!(res.status(), 200);
 
@@ -317,13 +320,13 @@ mod test {
             "true"
         );
     }
-    #[test]
-    fn default_cors_middleware() {
+    #[tokio::test]
+    async fn default_cors_middleware() {
         let mut app = app();
         app.middleware(Cors::new());
 
-        let mut server = make_server(app.into_http_service()).unwrap();
-        let res = server.simulate(request()).unwrap();
+        let app = app.into_http_service();
+        let res = app.call(request()).await;
 
         assert_eq!(res.status(), 200);
 
@@ -333,8 +336,8 @@ mod test {
         );
     }
 
-    #[test]
-    fn custom_cors_middleware() {
+    #[tokio::test]
+    async fn custom_cors_middleware() {
         let mut app = app();
         app.middleware(
             Cors::new()
@@ -344,8 +347,8 @@ mod test {
                 .expose_headers(HeaderValue::from_static(EXPOSE_HEADER)),
         );
 
-        let mut server = make_server(app.into_http_service()).unwrap();
-        let res = server.simulate(request()).unwrap();
+        let app = app.into_http_service();
+        let res = app.call(request()).await;
 
         assert_eq!(res.status(), 200);
         assert_eq!(
@@ -354,13 +357,13 @@ mod test {
         );
     }
 
-    #[test]
-    fn credentials_true() {
+    #[tokio::test]
+    async fn credentials_true() {
         let mut app = app();
         app.middleware(Cors::new().allow_credentials(true));
 
-        let mut server = make_server(app.into_http_service()).unwrap();
-        let res = server.simulate(request()).unwrap();
+        let app = app.into_http_service();
+        let res = app.call(request()).await;
 
         assert_eq!(res.status(), 200);
         assert_eq!(
@@ -371,21 +374,22 @@ mod test {
         );
     }
 
-    #[test]
-    fn set_allow_origin_list() {
+    #[tokio::test]
+    async fn set_allow_origin_list() {
         let mut app = app();
         let origins = vec![ALLOW_ORIGIN, "foo.com", "bar.com"];
         app.middleware(Cors::new().allow_origin(origins.clone()));
-        let mut server = make_server(app.into_http_service()).unwrap();
+        let app = app.into_http_service();
 
         for origin in origins {
             let request = hyper::Request::get(ENDPOINT)
                 .header(hyper::header::ORIGIN, origin)
-                .method(hyper::method::Method::GET)
+                .method(hyper::Method::GET)
                 .body(Body::empty())
                 .unwrap();
 
-            let res = server.simulate(request).unwrap();
+            let request = Request::new(Arc::new(()), request, vec![]);
+            let res = app.call(request).await;
 
             assert_eq!(res.status(), 200);
             assert_eq!(
@@ -395,35 +399,37 @@ mod test {
         }
     }
 
-    #[test]
-    fn not_set_origin_header() {
+    #[tokio::test]
+    async fn not_set_origin_header() {
         let mut app = app();
         app.middleware(Cors::new());
 
         let request = hyper::Request::get(ENDPOINT)
-            .method(hyper::method::Method::GET)
+            .method(hyper::Method::GET)
             .body(Body::empty())
             .unwrap();
 
-        let mut server = make_server(app.into_http_service()).unwrap();
-        let res = server.simulate(request).unwrap();
+        let app = app.into_http_service();
+        let request = Request::new(Arc::new(()), request, vec![]);
+        let res = app.call(request).await;
 
         assert_eq!(res.status(), 200);
     }
 
-    #[test]
-    fn unauthorized_origin() {
+    #[tokio::test]
+    async fn unauthorized_origin() {
         let mut app = app();
         app.middleware(Cors::new().allow_origin(ALLOW_ORIGIN));
 
         let request = hyper::Request::get(ENDPOINT)
             .header(hyper::header::ORIGIN, "unauthorize-origin.net")
-            .method(hyper::method::Method::GET)
+            .method(hyper::Method::GET)
             .body(Body::empty())
             .unwrap();
 
-        let mut server = make_server(app.into_http_service()).unwrap();
-        let res = server.simulate(request).unwrap();
+        let app = app.into_http_service();
+        let request = Request::new(Arc::new(()), request, vec![]);
+        let res = app.call(request).await;
 
         assert_eq!(res.status(), 401);
     }

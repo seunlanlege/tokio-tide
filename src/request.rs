@@ -24,7 +24,7 @@ pub struct Request<State> {
 }
 
 impl<State> Request<State> {
-    pub(crate) fn new(
+    pub fn new(
         state: Arc<State>,
         request: hyper::Request<Body>,
         route_params: Vec<Params>,

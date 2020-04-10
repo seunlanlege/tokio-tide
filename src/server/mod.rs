@@ -81,7 +81,7 @@ use std::net::ToSocketAddrs;
 ///// # Serverlication state
 /////
 ///// ```rust,no_run
-///// use hyper::status::StatusCode;
+///// use hyper::StatusCode;
 ///// use serde::{Deserialize, Serialize};
 ///// use std::sync::Mutex;
 ///// use tide::{error::ResultExt, Server, Request, Result};

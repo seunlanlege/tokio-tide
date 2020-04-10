@@ -1,10 +1,9 @@
 use cookie::Cookie;
-use futures::executor::block_on;
-use futures::AsyncReadExt;
-use http_service::Body;
-use http_service_mock::make_server;
+use hyper::{Body, body};
 
-use tide::{Request, Response, Server};
+use tide::{Request, Response, Server, Endpoint};
+use std::sync::Arc;
+use bytes::Buf;
 
 static COOKIE_NAME: &str = "testCookie";
 
@@ -41,46 +40,42 @@ fn app() -> crate::Server<()> {
     app
 }
 
-fn make_request(endpoint: &str) -> http::response::Response<http_service::Body> {
-    let app = app();
-    let mut server = make_server(app.into_http_service()).unwrap();
-    let req = http::Request::get(endpoint)
-        .header(http::header::COOKIE, "testCookie=RequestCookieValue")
+async fn make_request(endpoint: &str) -> Response {
+    let app = app().into_http_service();
+    let req = hyper::Request::get(endpoint)
+        .header(hyper::header::COOKIE, "testCookie=RequestCookieValue")
         .body(Body::empty())
         .unwrap();
-    server.simulate(req).unwrap()
+    let req = Request::new(Arc::new(()), req, vec![]);
+    app.call(req).await
 }
 
-#[test]
-fn successfully_retrieve_request_cookie() {
-    let mut res = make_request("/get");
+#[tokio::test]
+async fn successfully_retrieve_request_cookie() {
+    let mut res = make_request("/get").await;
     assert_eq!(res.status(), 200);
 
-    let body = block_on(async move {
-        let mut buffer = Vec::new();
-        res.body_mut().read_to_end(&mut buffer).await.unwrap();
-        buffer
-    });
+    let body = body::aggregate(res.take_body()).await.unwrap().to_bytes().to_vec();
 
-    assert_eq!(&*body, &*b"RequestCookieValue");
+    assert_eq!(&body[..], &*b"RequestCookieValue");
 }
 
-#[test]
-fn successfully_set_cookie() {
-    let res = make_request("/set");
+#[tokio::test]
+async fn successfully_set_cookie() {
+    let res = make_request("/set").await;
     assert_eq!(res.status(), 200);
-    let test_cookie_header = res.headers().get(http::header::SET_COOKIE).unwrap();
+    let test_cookie_header = res.headers().get(hyper::header::SET_COOKIE).unwrap();
     assert_eq!(
         test_cookie_header.to_str().unwrap(),
         "testCookie=NewCookieValue"
     );
 }
 
-#[test]
-fn successfully_remove_cookie() {
-    let res = make_request("/remove");
+#[tokio::test]
+async fn successfully_remove_cookie() {
+    let res = make_request("/remove").await;
     assert_eq!(res.status(), 200);
-    let test_cookie_header = res.headers().get(http::header::SET_COOKIE).unwrap();
+    let test_cookie_header = res.headers().get(hyper::header::SET_COOKIE).unwrap();
     assert!(test_cookie_header
         .to_str()
         .unwrap()
@@ -89,14 +84,14 @@ fn successfully_remove_cookie() {
     assert_eq!(cookie.name(), COOKIE_NAME);
     assert_eq!(cookie.value(), "");
     assert_eq!(cookie.http_only(), None);
-    assert_eq!(cookie.max_age().unwrap().num_nanoseconds(), Some(0));
+    assert_eq!(cookie.max_age().unwrap().whole_nanoseconds(), 0);
 }
 
-#[test]
-fn successfully_set_multiple_cookies() {
-    let res = make_request("/multi");
+#[tokio::test]
+async fn successfully_set_multiple_cookies() {
+    let res = make_request("/multi").await;
     assert_eq!(res.status(), 200);
-    let cookie_header = res.headers().get_all(http::header::SET_COOKIE);
+    let cookie_header = res.headers().get_all(hyper::header::SET_COOKIE);
     let mut iter = cookie_header.iter();
 
     let cookie1 = iter.next().unwrap();
