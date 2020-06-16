@@ -1,5 +1,6 @@
 use crate::{Request, Response};
 use hyper::StatusCode;
+use serde_json::Value;
 
 /// Conversion into a `Response`.
 pub trait IntoResponse: Send + Sized {
@@ -40,6 +41,14 @@ pub trait IntoResponse: Send + Sized {
 //     }
 // }
 
+impl IntoResponse for Value {
+    fn into_response(self) -> Response {
+        Response::new(200)
+			.set_header("Content-Type", "application/octet-stream")
+            .body_string(serde_json::to_string(&self).unwrap())
+    }
+}
+
 impl IntoResponse for String {
     fn into_response(self) -> Response {
         Response::new(200)
@@ -70,23 +79,23 @@ impl IntoResponse for &'_ str {
 //     }
 // }
 
-// impl<T: IntoResponse, U: IntoResponse> IntoResponse for Result<T, U> {
-//     fn into_response(self) -> Response {
-//         match self {
-//             Ok(r) => r.into_response(),
-//             Err(r) => {
-//                 let res = r.into_response();
-//                 if res.status().is_success() {
-//                     panic!(
-//                         "Attempted to yield error response with success code {:?}",
-//                         res.status()
-//                     )
-//                 }
-//                 res
-//             }
-//         }
-//     }
-// }
+impl<T: IntoResponse, U: IntoResponse> IntoResponse for Result<T, U> {
+    fn into_response(self) -> Response {
+        match self {
+            Ok(r) => r.into_response(),
+            Err(r) => {
+                let res = r.into_response();
+                if res.status().is_success() {
+                    panic!(
+                        "Attempted to yield error response with success code {:?}",
+                        res.status()
+                    )
+                }
+                res
+            }
+        }
+    }
+}
 
 impl IntoResponse for Response {
     fn into_response(self) -> Response {
